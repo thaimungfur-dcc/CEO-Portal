@@ -113,6 +113,15 @@ export const cache = {
  */
 export const api = {
   post: async <T = any>(action: string, sheet?: string, data?: any, params?: { limit?: number, offset?: number }): Promise<ApiResponse<T>> => {
+    // --- Hardcoded Users Interception ---
+    if (action === 'login' && data && data.employeeId) {
+      if ((data.employeeId === 'DEMO' && data.idCard === 'DEMO123456789') || 
+          (data.employeeId === 'U001' && data.idCard === 'ADMIN12345678') ||
+          (data.employeeId === 'DEV001' && data.idCard === '1234567890123')) {
+        return mockResponse(action, data) as any;
+      }
+    }
+
     // --- Dual Write to Firebase Logic ---
     if (sheet && data && (action === 'write' || action === 'update' || action === 'delete')) {
       // Run Firestore dual writes in background to not block the user's primary GAS request
