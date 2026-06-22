@@ -205,6 +205,17 @@ function writeData(sheet, data, headersObj) {
     return sheetHeaders.map(h => {
       var val = item[h];
       if (Array.isArray(val) || (typeof val === 'object' && val !== null)) val = JSON.stringify(val);
+      
+      if (val != null && val !== "") {
+        const hLower = h.toLowerCase();
+        if (hLower === 'mm/dd/yyyy' || hLower === 'date' || hLower === 'duedate') {
+          const strVal = String(val).trim();
+          // Prepend a single quote if the pattern resembles a slash/dash separated date string or month string
+          if (strVal.match(/^\d+[\/\-]\d+[\/\-]\d+/) || strVal.match(/^[A-Za-z]{3,}\s+\d+\s+\d+/)) {
+            return "'" + strVal;
+          }
+        }
+      }
       return val != null ? val : "";
     });
   });
@@ -244,6 +255,16 @@ function updateData(sheet, data, headersObj) {
         if (updateItem.hasOwnProperty(header)) {
           let val = updateItem[header];
           if (Array.isArray(val) || (typeof val === 'object' && val !== null)) val = JSON.stringify(val);
+          
+          if (val != null && val !== "") {
+            const hLower = header.toLowerCase();
+            if (hLower === 'mm/dd/yyyy' || hLower === 'date' || hLower === 'duedate') {
+              const strVal = String(val).trim();
+              if (strVal.match(/^\d+[\/\-]\d+[\/\-]\d+/) || strVal.match(/^[A-Za-z]{3,}\s+\d+\s+\d+/)) {
+                val = "'" + strVal;
+              }
+            }
+          }
           values[i][colIdx] = val != null ? val : "";
         }
       });

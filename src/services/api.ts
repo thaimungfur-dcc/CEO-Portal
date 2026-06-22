@@ -167,9 +167,12 @@ export const api = {
     // ------------------------------------
 
     const currentScriptUrl = getScriptUrl();
+    let result: any = null;
+    let success = false;
+    let lastError: any = null;
     
+    // Strategy 1: Try proxy first (optimal for AI Studio & environments with active backend proxy)
     try {
-      // 📝 OPTIMISTIC UI / PROXY SUPPORT: We route through our Express server backend via /api/proxy-gas to bypass browser CORS rules!
       const response = await fetch('/api/proxy-gas', {
         method: 'POST',
         headers: {
@@ -178,37 +181,75 @@ export const api = {
         },
         body: JSON.stringify({ action, sheet, data, ...params }),
       });
-      const result = await response.json();
-      if (result && result.status === 'error') {
+      
+      const contentType = response.headers.get('content-type') || '';
+      if (response.ok && contentType.includes('application/json')) {
+        result = await response.json();
+        success = true;
+      } else {
+        const errorText = `Proxy returned non-successful status (${response.status}) or non-JSON content type`;
+        console.warn(errorText);
+        lastError = new Error(errorText);
+      }
+    } catch (proxyError: any) {
+      const errorText = `Proxy fetch failed: ${proxyError?.message || String(proxyError)}`;
+      console.warn(errorText);
+      lastError = proxyError;
+    }
+
+    // Strategy 2: Direct GAS post fallback (critical for static environments like Cloudflare Pages)
+    if (!success && currentScriptUrl) {
+      try {
+        console.log(`[API Fallback] Executing direct fetch to Google Apps Script: ${currentScriptUrl}`);
+        const response = await fetch(currentScriptUrl, {
+          method: 'POST',
+          mode: 'cors',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
+          body: JSON.stringify({ action, sheet, data, ...params }),
+        });
+        
+        const text = await response.text();
+        result = JSON.parse(text);
+        success = true;
+        console.log('[API Fallback] Direct fetch to Google Apps Script succeeded!');
+      } catch (directError: any) {
+        console.error('[API Fallback] Direct GAS fetch also failed:', directError);
+        lastError = directError;
+      }
+    }
+
+    if (success && result) {
+      if (result.status === 'error') {
         throw new Error(result.message || 'API responded with an error');
       }
       return result;
-    } catch (error) {
-      console.warn('API proxy fetch failed, falling back to Firebase if possible:', error);
-      if (action === 'read' && sheet) {
-        try {
-          const { db } = await import('./firebase');
-          const { collection, getDocs } = await import('firebase/firestore');
-          const snapshot = await getDocs(collection(db, sheet));
-          const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          return { status: 'success', data: { items } } as ApiResponse<T>;
-        } catch (fbError: any) {
-           console.warn(`[Network] Connected via fallback offline mock mode. (Database access waiting for rules/setup)`);
-           // Soft mock fallback in case both GAS & Firebase fail to keep preview running
-           return mockResponse(action, data);
-        }
-      }
-      
-      // If doing a write/update/delete operation and it fails to sync to GAS,
-      // but Firebase sync was attempted, we assume success so the UI doesn't crash 
-      // with "Failed to fetch" if they have ad-blockers or bad GAS configuration.
-      if (sheet && data && (action === 'write' || action === 'update' || action === 'delete')) {
-         console.warn(`GAS Sync failed for ${action}. Failing the request so UI reverts. Error:`, error);
-         throw new Error(`Google Sheets Sync Failed: ${(error as any).message}`);
-      }
-      
-      throw error;
     }
+
+    // If both failed, trigger original fallback policies
+    const finalError = lastError || new Error('All communication strategies failed');
+    console.warn('API communication failed, falling back to Firebase if possible:', finalError);
+    
+    if (action === 'read' && sheet) {
+      try {
+        const { db } = await import('./firebase');
+        const { collection, getDocs } = await import('firebase/firestore');
+        const snapshot = await getDocs(collection(db, sheet));
+        const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        return { status: 'success', data: { items } } as ApiResponse<T>;
+      } catch (fbError: any) {
+         console.warn(`[Network] Connected via fallback offline mock mode. (Database access waiting for rules/setup)`);
+         return mockResponse(action, data);
+      }
+    }
+    
+    if (sheet && data && (action === 'write' || action === 'update' || action === 'delete')) {
+       console.warn(`GAS Sync failed for ${action}. Failing the request so UI reverts. Error:`, finalError);
+       throw new Error(`Google Sheets Sync Failed: ${(finalError as any).message}`);
+    }
+    
+    throw finalError;
   }
 };
 

@@ -812,7 +812,8 @@ const CEODashboard = () => {
 
       if (!d) {
         const strDate = String(rawDate).trim();
-        const parts = strDate.split(/[\/\-]/);
+        const cleanDateStr = strDate.split(/[ T]/)[0];
+        const parts = cleanDateStr.split(/[\/\-]/);
         if (parts.length === 3) {
            let year = 0;
            let month = 0;
@@ -849,8 +850,13 @@ const CEODashboard = () => {
            if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
              d = new Date(year, month - 1, day);
            }
-        } else {
-          d = new Date(strDate);
+        }
+        
+        if (!d || isNaN(d.getTime())) {
+          const parsedDirect = new Date(strDate);
+          if (!isNaN(parsedDirect.getTime())) {
+            d = parsedDirect;
+          }
         }
       }
 

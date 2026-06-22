@@ -177,10 +177,19 @@ export default function MarginAnalysis() {
   const { t } = useLanguage();
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showYoY, setShowYoY] = useState(false);
 
   const MONTH_LABELS = useMemo(() => 
     MONTH_LABELS_MAPPING.map(m => `${m}-${selectedYear}`), 
   [selectedYear]);
+
+  const previousYear = useMemo(() => {
+    return (parseInt(selectedYear) - 1).toString();
+  }, [selectedYear]);
+
+  const PREV_MONTH_LABELS = useMemo(() => 
+    MONTH_LABELS_MAPPING.map(m => `${m}-${previousYear}`), 
+  [previousYear]);
 
   // Load live values synchronized with simulation page in real-time!
   const [categories, setCategories] = useState<CategoryData[]>(() => {
@@ -483,23 +492,91 @@ export default function MarginAnalysis() {
     return monthlyTotals;
   }, [categories, fixedCosts, MONTH_LABELS]);
 
+  // Compute calculated values for previous year to support YoY comparison
+  const calculatedPreviousMonthlyTotals = useMemo(() => {
+    const monthlyTotals: Record<string, {
+      monthKey: string;
+      revenue: number;
+      varCost: number;
+      fixedCost: number;
+      grossMargin: number; // Revenue - VarCost
+      netMargin: number;   // Revenue - VarCost - FixedCost
+      pctMargin: number;   // (GrossMargin / Revenue) * 100
+      pctNetMargin: number;// (NetMargin / Revenue) * 100
+      isProfitable: boolean;
+    }> = {};
+
+    PREV_MONTH_LABELS.forEach(m => {
+      let monthRev = 0;
+      let monthVC = 0;
+
+      categories.forEach(cat => {
+        const monData = cat.months[m];
+        if (monData) {
+          monthRev += monData.sales || 0;
+          monthVC += monData.varCost || 0;
+        }
+      });
+
+      const fixedCost = fixedCosts[m] || 0;
+      const grossMargin = monthRev - monthVC;
+      const netMargin = grossMargin - fixedCost;
+      const pctMargin = monthRev > 0 ? (grossMargin / monthRev) * 100 : 0;
+      const pctNetMargin = monthRev > 0 ? (netMargin / monthRev) * 100 : 0;
+
+      monthlyTotals[m] = {
+        monthKey: m,
+        revenue: monthRev,
+        varCost: monthVC,
+        fixedCost,
+        grossMargin,
+        netMargin,
+        pctMargin,
+        pctNetMargin,
+        isProfitable: netMargin >= 0
+      };
+    });
+
+    return monthlyTotals;
+  }, [categories, fixedCosts, PREV_MONTH_LABELS]);
+
   // Clean data structured specifically for Area / Bar Charts
   const chartData = useMemo(() => {
-    return MONTH_LABELS.map(m => {
-      const data = calculatedMonthlyTotals[m] || { revenue: 0, varCost: 0, fixedCost: 0, grossMargin: 0, netMargin: 0, pctMargin: 0, pctNetMargin: 0 };
-      const label = m.split('-')[0];
+    return MONTH_LABELS_MAPPING.map(mLabel => {
+      const currentKey = `${mLabel}-${selectedYear}`;
+      const prevKey = `${mLabel}-${previousYear}`;
+
+      const curr = calculatedMonthlyTotals[currentKey] || { revenue: 0, varCost: 0, fixedCost: 0, grossMargin: 0, netMargin: 0, pctMargin: 0, pctNetMargin: 0 };
+      const prev = calculatedPreviousMonthlyTotals[prevKey] || { revenue: 0, varCost: 0, fixedCost: 0, grossMargin: 0, netMargin: 0, pctMargin: 0, pctNetMargin: 0 };
+
       return {
-        month: t(label, label),
-        revenue: data.revenue,
-         varCost: data.varCost,
-         fixedCost: data.fixedCost,
-         grossMargin: data.grossMargin,
-         netMargin: data.netMargin,
-         pctMargin: parseFloat(data.pctMargin.toFixed(2)),
-         pctNetMargin: parseFloat(data.pctNetMargin.toFixed(2))
+        month: t(mLabel, mLabel),
+        
+        // Current Year Values
+        revenue: curr.revenue,
+        varCost: curr.varCost,
+        fixedCost: curr.fixedCost,
+        grossMargin: curr.grossMargin,
+        netMargin: curr.netMargin,
+        pctMargin: parseFloat(curr.pctMargin.toFixed(2)),
+        pctNetMargin: parseFloat(curr.pctNetMargin.toFixed(2)),
+
+        // Previous Year Values
+        prevRevenue: prev.revenue,
+        prevVarCost: prev.varCost,
+        prevFixedCost: prev.fixedCost,
+        prevGrossMargin: prev.grossMargin,
+        prevNetMargin: prev.netMargin,
+        prevPctMargin: parseFloat(prev.pctMargin.toFixed(2)),
+        prevPctNetMargin: parseFloat(prev.pctNetMargin.toFixed(2))
       };
-    }).filter(d => d.revenue > 0 || d.varCost > 0 || d.fixedCost > 0); // Hide months with no data for clean visual focus
-  }, [calculatedMonthlyTotals, t, MONTH_LABELS]);
+    }).filter(d => {
+      if (showYoY) {
+        return d.revenue > 0 || d.varCost > 0 || d.fixedCost > 0 || d.prevRevenue > 0 || d.prevVarCost > 0 || d.prevFixedCost > 0;
+      }
+      return d.revenue > 0 || d.varCost > 0 || d.fixedCost > 0;
+    });
+  }, [calculatedMonthlyTotals, calculatedPreviousMonthlyTotals, t, MONTH_LABELS_MAPPING, selectedYear, previousYear, showYoY]);
 
   // Overall Cumulative Summaries
   const cumulativeStats = useMemo(() => {
@@ -563,6 +640,20 @@ export default function MarginAnalysis() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* YoY Toggle Switch */}
+          <div className="flex items-center gap-2 bg-white border border-[#eaeaec] rounded-xl px-3 h-9 shadow-sm">
+            <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">
+              {t('YoY Compare', 'เปรียบเทียบ YoY')}
+            </span>
+            <button 
+              onClick={() => setShowYoY(!showYoY)}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${showYoY ? 'bg-[#b58c4f]' : 'bg-slate-200'}`}
+              id="yoy-toggle"
+            >
+              <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${showYoY ? 'translate-x-4' : 'translate-x-0'}`} />
+            </button>
+          </div>
+
           <div className="flex items-center bg-white border border-[#eaeaec] rounded-xl px-2 py-1 shadow-sm h-9">
              <select 
                value={selectedYear} 
@@ -671,9 +762,20 @@ export default function MarginAnalysis() {
                   contentStyle={{ backgroundColor: 'white', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold' }}
                 />
                 <Legend />
-                <Bar dataKey="revenue" name={t('Revenue', 'รายรับรวม')} fill={CHARTS_THEME.primary} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="varCost" name={t('Mat. Cost', 'ต้นทุนวัตถุดิบ (Mat. Cost)')} fill={CHARTS_THEME.danger} radius={[4, 4, 0, 0]} />
-                <Line type="monotone" dataKey="netMargin" name={t('Net Income', 'กำไรสุทธิสุทธิ')} stroke={CHARTS_THEME.success} strokeWidth={3} dot={{ r: 4 }} />
+                <Bar dataKey="revenue" name={showYoY ? t('Revenue (Current)', 'รายรับรวม (ปีนี้)') : t('Revenue', 'รายรับรวม')} fill={CHARTS_THEME.primary} radius={[4, 4, 0, 0]} />
+                {showYoY && (
+                  <Bar dataKey="prevRevenue" name={t('Revenue (Prev Year)', 'รายรับรวม (ปีที่แล้ว)')} fill={CHARTS_THEME.indigo} fillOpacity={0.35} radius={[4, 4, 0, 0]} />
+                )}
+                
+                <Bar dataKey="varCost" name={showYoY ? t('Mat. Cost (Current)', 'ต้นทุนวัตถุดิบ (ปีนี้)') : t('Mat. Cost', 'ต้นทุนวัตถุดิบ (Mat. Cost)')} fill={CHARTS_THEME.danger} radius={[4, 4, 0, 0]} />
+                {showYoY && (
+                  <Bar dataKey="prevVarCost" name={t('Mat. Cost (Prev Year)', 'ต้นทุนวัตถุดิบ (ปีที่แล้ว)')} fill="#f56565" fillOpacity={0.35} radius={[4, 4, 0, 0]} />
+                )}
+
+                <Line type="monotone" dataKey="netMargin" name={showYoY ? t('Net Income (Current)', 'กำไรสุทธิ (ปีนี้)') : t('Net Income', 'กำไรสุทธิ')} stroke={CHARTS_THEME.success} strokeWidth={3} dot={{ r: 4 }} />
+                {showYoY && (
+                  <Line type="monotone" dataKey="prevNetMargin" name={t('Net Income (Prev Year)', 'กำไรสุทธิ (ปีที่แล้ว)')} stroke="#657f4d" strokeWidth={2} strokeDasharray="5 5" opacity={0.65} dot={{ r: 3 }} />
+                )}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -698,8 +800,15 @@ export default function MarginAnalysis() {
                   contentStyle={{ backgroundColor: 'white', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold' }}
                 />
                 <Legend />
-                <Area type="monotone" dataKey="pctMargin" name={t('Gross Margin %', 'เปอร์เซ็นต์กำไรขั้นต้น')} stroke={CHARTS_THEME.secondary} fill={CHARTS_THEME.secondary} fillOpacity={0.15} strokeWidth={2.5} />
-                <Area type="monotone" dataKey="pctNetMargin" name={t('Net Margin %', 'เปอร์เซ็นต์กำไรสุทธิ')} stroke={CHARTS_THEME.success} fill={CHARTS_THEME.success} fillOpacity={0.15} strokeWidth={2.5} />
+                <Area type="monotone" dataKey="pctMargin" name={showYoY ? t('Gross Margin % (Current)', 'เปอร์เซ็นต์กำไรขั้นต้น (ปีนี้)') : t('Gross Margin %', 'เปอร์เซ็นต์กำไรขั้นต้น')} stroke={CHARTS_THEME.secondary} fill={CHARTS_THEME.secondary} fillOpacity={0.15} strokeWidth={2.5} />
+                {showYoY && (
+                  <Area type="monotone" dataKey="prevPctMargin" name={t('Gross Margin % (Prev Year)', '% กำไรขั้นต้น (ปีที่แล้ว)')} stroke="#d4af37" fill="none" strokeWidth={2} strokeDasharray="4 4" opacity={0.7} />
+                )}
+
+                <Area type="monotone" dataKey="pctNetMargin" name={showYoY ? t('Net Margin % (Current)', 'เปอร์เซ็นต์กำไรสุทธิ (ปีนี้)') : t('Net Margin %', 'เปอร์เซ็นต์กำไรสุทธิ')} stroke={CHARTS_THEME.success} fill={CHARTS_THEME.success} fillOpacity={0.15} strokeWidth={2.5} />
+                {showYoY && (
+                  <Area type="monotone" dataKey="prevPctNetMargin" name={t('Net Margin % (Prev Year)', '% กำไรสุทธิ (ปีที่แล้ว)')} stroke="#657f4d" fill="none" strokeWidth={2} strokeDasharray="4 4" opacity={0.7} />
+                )}
               </AreaChart>
             </ResponsiveContainer>
           </div>
