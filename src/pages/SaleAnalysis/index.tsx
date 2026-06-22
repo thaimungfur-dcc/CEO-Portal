@@ -26,7 +26,7 @@ export default function SaleAnalysis() {
   const { t } = useLanguage();
   const [data, setData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedYear, setSelectedYear] = useState('2026');
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [selectedCategory, setSelectedCategory] = useState('ALL');
 
   useEffect(() => {
@@ -252,10 +252,10 @@ export default function SaleAnalysis() {
                onChange={(e) => setSelectedYear(e.target.value)}
                className="text-[11px] font-black uppercase text-[#212c46] outline-none bg-transparent cursor-pointer"
              >
-               <option value="2024">2024</option>
-               <option value="2025">2025</option>
-               <option value="2026">2026</option>
-               <option value="2027">2027</option>
+               {[...Array(10)].map((_, i) => {
+                 const yr = new Date().getFullYear() - 3 + i;
+                 return <option key={yr} value={String(yr)}>{yr}</option>;
+               })}
              </select>
           </div>
 

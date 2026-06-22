@@ -8,7 +8,7 @@ export const getScriptUrl = (): string => {
       return customUrl.trim();
     }
   }
-  return import.meta.env.VITE_APPS_SCRIPT_URL || '/api/proxy-gas';
+  return import.meta.env.VITE_APPS_SCRIPT_URL || 'https://script.google.com/macros/s/AKfycbwSmhUe3hPoUPv_ikEqwgkyDGDYOvqT6ugsVhGp04hU6FctDo-NZ4vv6QZvFolkkTwumA/exec';
 };
 
 export enum OperationType {
@@ -167,30 +167,14 @@ export const api = {
     // ------------------------------------
 
     const currentScriptUrl = getScriptUrl();
-    if (!currentScriptUrl || currentScriptUrl === '/api/proxy-gas') {
-      console.warn('VITE_APPS_SCRIPT_URL (Google Apps Script Web App URL) is not set or proxy is used. ⚠️ Attempting Firebase direct fallback.');
-      if (action === 'read' && sheet) {
-        try {
-          const { db } = await import('./firebase');
-          const { collection, getDocs, orderBy, query } = await import('firebase/firestore');
-          const q = query(collection(db, sheet)); // Can add orderBy here if needed
-          const snapshot = await getDocs(q);
-          const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          return { status: 'success', data: { items } } as ApiResponse<T>;
-        } catch (fbError: any) {
-           console.warn(`[Network] Connected via fallback offline mock mode. (Database access waiting for rules/setup)`);
-           return mockResponse(action, data);
-        }
-      }
-      return mockResponse(action, data);
-    }
     
     try {
-      // 📝 OPTIMISTIC UI SUPPORT: We use text/plain to avoid preflight (Performance Boost)
-      const response = await fetch(currentScriptUrl, {
+      // 📝 OPTIMISTIC UI / PROXY SUPPORT: We route through our Express server backend via /api/proxy-gas to bypass browser CORS rules!
+      const response = await fetch('/api/proxy-gas', {
         method: 'POST',
         headers: {
-          'Content-Type': 'text/plain;charset=utf-8',
+          'Content-Type': 'application/json',
+          'x-target-url': currentScriptUrl || ''
         },
         body: JSON.stringify({ action, sheet, data, ...params }),
       });
@@ -200,7 +184,7 @@ export const api = {
       }
       return result;
     } catch (error) {
-      console.warn('API fetch failed, falling back to Firebase if possible:', error);
+      console.warn('API proxy fetch failed, falling back to Firebase if possible:', error);
       if (action === 'read' && sheet) {
         try {
           const { db } = await import('./firebase');
@@ -219,8 +203,8 @@ export const api = {
       // but Firebase sync was attempted, we assume success so the UI doesn't crash 
       // with "Failed to fetch" if they have ad-blockers or bad GAS configuration.
       if (sheet && data && (action === 'write' || action === 'update' || action === 'delete')) {
-         console.warn(`GAS Sync failed for ${action}. Assuming Firebase took the write.`);
-         return { status: 'success', message: 'Data synced to Firebase (GAS sync failed)' } as ApiResponse<T>;
+         console.warn(`GAS Sync failed for ${action}. Failing the request so UI reverts. Error:`, error);
+         throw new Error(`Google Sheets Sync Failed: ${(error as any).message}`);
       }
       
       throw error;

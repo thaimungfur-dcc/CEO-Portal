@@ -91,6 +91,7 @@ export default function CostExpense() {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedMonth, setSelectedMonth] = useState('');
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [alertInfo, setAlertInfo] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -391,6 +392,13 @@ export default function CostExpense() {
 
   const filteredData = React.useMemo(() => {
     let result = data;
+    if (selectedYear !== 'ALL') {
+      result = result.filter(row => {
+        const d = getParsedDate(getDateFromRow(row));
+        if (!d || isNaN(d.getTime())) return false;
+        return d.getFullYear() === Number(selectedYear);
+      });
+    }
     if (selectedMonth) {
       const [year, month] = selectedMonth.split('-');
       result = result.filter(row => {
@@ -474,14 +482,30 @@ export default function CostExpense() {
           </div>
 
           {/* Upper Toolbar Month selector in Cost Header */}
-          <div className="flex items-center bg-white border border-[#eaeaec] rounded-xl px-3 py-1 shadow-sm h-[38px]">
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mr-2">{t('MONTH:', 'เดือน:')}</span>
-            <input 
-              type="month" 
-              value={selectedMonth}
-              onChange={(e) => { setSelectedMonth(e.target.value); setCurrentPage(1); }}
-              className="text-[11px] font-black text-[#212c46] outline-none bg-transparent select-none cursor-pointer"
-            />
+          <div className="flex items-center gap-2 bg-white/50 p-1.5 rounded-xl border border-white/60 shadow-inner">
+            <div className="flex items-center bg-white border border-[#eaeaec] rounded-lg px-3 py-1 shadow-sm h-[38px]">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mr-2">{t('YEAR:', 'ปี:')}</span>
+              <select 
+                value={selectedYear}
+                onChange={(e) => { setSelectedYear(e.target.value); setCurrentPage(1); }}
+                className="text-[11px] font-black text-[#212c46] outline-none bg-transparent select-none cursor-pointer"
+              >
+                <option value="ALL">{t('ALL YEARS', 'ทุกปี')}</option>
+                {[...Array(10)].map((_, i) => {
+                  const yr = new Date().getFullYear() - 3 + i;
+                  return <option key={yr} value={yr}>{yr}</option>;
+                })}
+              </select>
+            </div>
+            <div className="flex items-center bg-white border border-[#eaeaec] rounded-xl px-3 py-1 shadow-sm h-[38px]">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mr-2">{t('MONTH:', 'เดือน:')}</span>
+              <input 
+                type="month" 
+                value={selectedMonth}
+                onChange={(e) => { setSelectedMonth(e.target.value); setCurrentPage(1); }}
+                className="text-[11px] font-black text-[#212c46] outline-none bg-transparent select-none cursor-pointer"
+              />
+            </div>
           </div>
       </div>
 

@@ -41,7 +41,7 @@ interface CategoryData {
 
 export default function BreakEvenAnalysis() {
   const { t } = useLanguage();
-  const [selectedYear, setSelectedYear] = useState<string>('2026');
+  const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [categories, setCategories] = useState<any[]>([]);
   const [fixedCosts, setFixedCosts] = useState<Record<string, number>>({});
@@ -434,10 +434,10 @@ export default function BreakEvenAnalysis() {
                onChange={(e) => setSelectedYear(e.target.value)}
                className="text-[11px] font-black uppercase text-[#212c46] outline-none bg-transparent cursor-pointer"
              >
-               <option value="2024">2024</option>
-               <option value="2025">2025</option>
-               <option value="2026">2026</option>
-               <option value="2027">2027</option>
+               {[...Array(10)].map((_, i) => {
+                 const yr = new Date().getFullYear() - 3 + i;
+                 return <option key={yr} value={String(yr)}>{yr}</option>;
+               })}
              </select>
           </div>
           

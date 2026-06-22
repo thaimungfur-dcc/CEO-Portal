@@ -285,7 +285,7 @@ function MarginUserGuidePanel({ isOpen, onClose, t }: any) {
 
 export default function Margin() {
   const { t } = useLanguage();
-  const [selectedYear, setSelectedYear] = useState('2026');
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   
   const MONTH_LABELS = useMemo(() => 
     MONTH_LABELS_MAPPING.map(m => `${m}-${selectedYear}`), 
@@ -748,10 +748,10 @@ export default function Margin() {
                onChange={(e) => setSelectedYear(e.target.value)}
                className="bg-transparent text-[12px] font-black uppercase text-[#212c46] focus:outline-none cursor-pointer"
              >
-               <option value="2024">2024</option>
-               <option value="2025">2025</option>
-               <option value="2026">2026</option>
-               <option value="2027">2027</option>
+               {[...Array(10)].map((_, i) => {
+                 const yr = new Date().getFullYear() - 3 + i;
+                 return <option key={yr} value={String(yr)}>{yr}</option>;
+               })}
              </select>
           </div>
           

@@ -13,13 +13,11 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Secure Google Apps Script backend proxy endpoint
 app.post('/api/proxy-gas', async (req, res) => {
-  const gasUrl = process.env.VITE_APPS_SCRIPT_URL;
-  if (!gasUrl) {
-    return res.status(400).json({
-      status: 'error',
-      message: 'VITE_APPS_SCRIPT_URL is not configured in the application Secrets. Please go to Settings > Secrets and add VITE_APPS_SCRIPT_URL.'
-    });
-  }
+  const headerUrl = req.headers['x-target-url'];
+  const fallbackUrl = 'https://script.google.com/macros/s/AKfycbwSmhUe3hPoUPv_ikEqwgkyDGDYOvqT6ugsVhGp04hU6FctDo-NZ4vv6QZvFolkkTwumA/exec';
+  const gasUrl = (typeof headerUrl === 'string' && headerUrl.trim()) 
+    ? headerUrl.trim() 
+    : (process.env.VITE_APPS_SCRIPT_URL || fallbackUrl);
 
   try {
     const response = await fetch(gasUrl, {
