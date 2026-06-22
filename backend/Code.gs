@@ -278,6 +278,9 @@ function deleteData(sheet, data, headersObj) {
 
 function handleLogin(ss, credentials, headersObj) {
   const userSheet = ss.getSheetByName("Users");
+  if (!userSheet) {
+    return createResponse("error", "ไม่พบชีต 'Users' ใน Google Sheets กรุณารันฟังก์ชัน setupDatabase ใน Apps Script ก่อน", null, headersObj);
+  }
   const values = userSheet.getDataRange().getValues();
   const cols = values[0];
   

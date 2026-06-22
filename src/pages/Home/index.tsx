@@ -865,7 +865,44 @@ const CEODashboard = () => {
       return null;
     };
 
+    // Find the latest year present in the data with dates
+    let latestYear = new Date().getFullYear();
+    const availableYears: number[] = [];
+
     revenueData.forEach(row => {
+      const dateVal = row['mm/dd/yyyy'] || row['วันที่'] || row['Date'] || row['date'] || '';
+      const d = getParsedDateObj(dateVal);
+      if (d) {
+        availableYears.push(d.getFullYear());
+      }
+    });
+
+    expenseData.forEach(row => {
+      const dateVal = row['mm/dd/yyyy'] || row['วันที่'] || row['Date'] || row['date'] || '';
+      const d = getParsedDateObj(dateVal);
+      if (d) {
+        availableYears.push(d.getFullYear());
+      }
+    });
+
+    if (availableYears.length > 0) {
+      latestYear = Math.max(...availableYears);
+    }
+
+    // Filter rows that match the latestYear
+    const filteredRevenueData = revenueData.filter(row => {
+      const dateVal = row['mm/dd/yyyy'] || row['วันที่'] || row['Date'] || row['date'] || '';
+      const d = getParsedDateObj(dateVal);
+      return d ? d.getFullYear() === latestYear : false;
+    });
+
+    const filteredExpenseData = expenseData.filter(row => {
+      const dateVal = row['mm/dd/yyyy'] || row['วันที่'] || row['Date'] || row['date'] || '';
+      const d = getParsedDateObj(dateVal);
+      return d ? d.getFullYear() === latestYear : false;
+    });
+
+    filteredRevenueData.forEach(row => {
       const val = parseFloat((row['มูลค่าขาย(บาท)'] || row['มูลค่าขาย'] || row['Revenue'] || row['Total'] || '0').toString().replace(/,/g, ''));
       if (!isNaN(val)) totalRev += val;
       
@@ -874,7 +911,7 @@ const CEODashboard = () => {
       if (!isNaN(qty) && !isNaN(cost)) totalCogs += (qty * cost);
     });
 
-    expenseData.forEach(row => {
+    filteredExpenseData.forEach(row => {
       const e = parseFloat((row['ต้นทุนและค่าใช้จ่ายรวม'] || row['Total Cost'] || row['TOTAL'] || '0').toString().replace(/,/g, ''));
       if (!isNaN(e)) totalExp += e;
     });
@@ -886,8 +923,8 @@ const CEODashboard = () => {
     const monthlyRev: Record<string, number> = {};
     const monthlyExp: Record<string, number> = {};
     
-    revenueData.forEach(row => {
-      const dateVal = row['วันที่'] || row['Date'] || row['date'] || '';
+    filteredRevenueData.forEach(row => {
+      const dateVal = row['mm/dd/yyyy'] || row['วันที่'] || row['Date'] || row['date'] || '';
       const d = getParsedDateObj(dateVal);
       if (!d) return;
       const key = d.toLocaleString('en-US', { month: 'short' });
@@ -895,8 +932,8 @@ const CEODashboard = () => {
       monthlyRev[key] = (monthlyRev[key] || 0) + val;
     });
 
-    expenseData.forEach(row => {
-      const dateVal = row['วันที่'] || row['Date'] || row['date'] || '';
+    filteredExpenseData.forEach(row => {
+      const dateVal = row['mm/dd/yyyy'] || row['วันที่'] || row['Date'] || row['date'] || '';
       const d = getParsedDateObj(dateVal);
       if (!d) return;
       const key = d.toLocaleString('en-US', { month: 'short' });
@@ -922,7 +959,7 @@ const CEODashboard = () => {
       { name: 'Remaining', value: Number((100 - healthScore).toFixed(1)) }
     ];
 
-    return { totalRev, totalMargin, totalExp, netProfit, outputChart, barChart, gauge, healthScore };
+    return { totalRev, totalMargin, totalExp, netProfit, outputChart, barChart, gauge, healthScore, latestYear };
   }, [revenueData, expenseData]);
 
   const outputData = metrics.outputChart.length ? metrics.outputChart : [
@@ -978,9 +1015,9 @@ const CEODashboard = () => {
         <div>
           <div className="flex items-center gap-2 mb-1.5">
             <LayoutGrid size={24} className="text-[#d2963f]" />
-            <h1 className="text-xl md:text-2xl font-bold font-sans text-[#2f3946] tracking-widest uppercase">CEO PORTAL <span className="text-[#899ca8]">DASHBOARD</span></h1>
+            <h1 className="text-xl md:text-2xl font-bold font-sans text-[#2f3946] tracking-widest uppercase font-exception-header">CEO PORTAL <span className="text-[#899ca8]">DASHBOARD ({metrics.latestYear})</span></h1>
           </div>
-          <p className="text-[9px] md:text-[10px] text-[#718698] tracking-[0.2em] font-black uppercase">REAL-TIME D3 VISUALIZATIONS COMPARING BUSINESS KPIS & OPERATIONS</p>
+          <p className="text-[9px] md:text-[10px] text-[#718698] tracking-[0.2em] font-black uppercase">REAL-TIME D3 VISUALIZATIONS COMPARING BUSINESS KPIS & OPERATIONS ({metrics.latestYear})</p>
         </div>
         <div className="flex items-end gap-6 shrink-0">
           <div className="flex flex-col items-end gap-1 mb-1">

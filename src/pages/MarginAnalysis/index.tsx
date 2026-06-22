@@ -215,7 +215,7 @@ export default function MarginAnalysis() {
 
       const savedCostMapping = localStorage.getItem('costExpenseMapping');
       const costMapping = savedCostMapping ? JSON.parse(savedCostMapping) : {
-        dateCol: 'วันที่/Month',
+        dateCol: 'mm/dd/yyyy',
         totalCol: 'ต้นทุนและค่าใช้จ่ายรวม'
       };
 
@@ -399,9 +399,9 @@ export default function MarginAnalysis() {
       });
 
       costData.forEach((row: any) => {
-        const dateVal = row[costMapping.dateCol] || row['วันที่'] || row['Date'] || row['date'] || Object.values(row)[0] || '';
+        const dateVal = row[costMapping.dateCol] || row['mm/dd/yyyy'] || row['วันที่/Month'] || row['วันที่'] || row['Date'] || row['date'] || row['Month'] || row['month'] || Object.values(row)[0] || '';
         const mKey = getParsedMonthYear(dateVal);
-        const totalExpense = parseFloat(String(row[costMapping.totalCol] || row['ต้นทุนและค่าใช้จ่ายรวม'] || row['Total Cost'] || row['TOTAL'] || Object.values(row)[6] || 0).replace(/,/g, '')) || 0;
+        const totalExpense = parseFloat(String(row[costMapping.totalCol] || row['ต้นทุนและค่าใช้จ่ายรวม'] || row['Total Cost'] || row['TOTAL'] || row['total'] || row['รวม'] || Object.values(row)[6] || 0).replace(/,/g, '')) || 0;
         
         if (newFixedCosts[mKey] === undefined) newFixedCosts[mKey] = 0;
         newFixedCosts[mKey] += totalExpense;
