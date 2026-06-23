@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { CsvUpload } from '../../components/shared/CsvUpload';
 import { api } from '../../services/api';
 import { DraggableModal } from '../../components/shared/DraggableModal';
-import { BarChart3, Upload, Plus, List, Search, ChevronLeft, ChevronRight, Calculator, Activity, DollarSign, HelpCircle, X, LayoutGrid, Briefcase, Zap, Database, CheckCircle2, AlertCircle, Trash2 } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, Upload, Plus, List, Search, ChevronLeft, ChevronRight, Calculator, Activity, DollarSign, HelpCircle, X, LayoutGrid, Briefcase, Zap, Database, CheckCircle2, AlertCircle, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -61,7 +61,7 @@ function UserGuidePanel({ isOpen, onClose, t }: any) {
   );
 }
 
-const KpiCard = ({ icon: Icon, value, label, colorAccent, colorValue, desc }: any) => (
+const KpiCard = ({ icon: Icon, value, label, colorAccent, colorValue, desc, trendInfo }: any) => (
     <div className="bg-white/90 px-6 py-6 rounded-2xl border border-[#eaeaec] shadow-sm flex-1 min-w-[200px] relative overflow-hidden group hover:border-[#b7a159] transition-all min-h-[120px] flex flex-col justify-between animate-fadeIn">
         <div className="absolute -right-4 -bottom-6 opacity-[0.05] transform group-hover:scale-110 transition-transform duration-700 pointer-events-none">
             <Icon size={110} color={colorAccent} />
@@ -73,9 +73,17 @@ const KpiCard = ({ icon: Icon, value, label, colorAccent, colorValue, desc }: an
             </div>
         </div>
         <div className="relative z-10 mt-2 flex items-end justify-between">
-            <p className="text-[28px] font-black leading-none text-[#212c46]" style={{color: colorValue}}>
-                {value}
-            </p>
+            <div className="flex flex-col gap-1.5">
+                <p className="text-[28px] font-black leading-none text-[#212c46]" style={{color: colorValue}}>
+                    {value}
+                </p>
+                {trendInfo && (
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold inline-flex items-center gap-1 w-max ${trendInfo.variance > 0 ? (trendInfo.invertGoodBad ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700') : (trendInfo.invertGoodBad ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}`}>
+                        {trendInfo.variance > 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                        {trendInfo.label}
+                    </span>
+                )}
+            </div>
             <span className="text-[11px] font-bold text-[#4d87a8] uppercase tracking-widest flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span> {desc}
             </span>
@@ -90,7 +98,6 @@ export default function CostExpense() {
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
-  const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -390,6 +397,20 @@ export default function CostExpense() {
     return row[mapping.dateCol] || row['Date'] || row['วันที่'] || row['Month'] || row['month'] || row['Date/Time'] || '-';
   }, [mapping]);
 
+  const availableYears = React.useMemo(() => {
+    const years = new Set<number>();
+    data.forEach(row => {
+      const d = getParsedDate(getDateFromRow(row));
+      if (d && !isNaN(d.getTime())) {
+        years.add(d.getFullYear());
+      }
+    });
+    if (years.size === 0) {
+      years.add(new Date().getFullYear());
+    }
+    return Array.from(years).sort((a, b) => b - a);
+  }, [data, getDateFromRow]);
+
   const filteredData = React.useMemo(() => {
     let result = data;
     if (selectedYear !== 'ALL') {
@@ -397,14 +418,6 @@ export default function CostExpense() {
         const d = getParsedDate(getDateFromRow(row));
         if (!d || isNaN(d.getTime())) return false;
         return d.getFullYear() === Number(selectedYear);
-      });
-    }
-    if (selectedMonth) {
-      const [year, month] = selectedMonth.split('-');
-      result = result.filter(row => {
-        const d = getParsedDate(getDateFromRow(row));
-        if (!d || isNaN(d.getTime())) return false;
-        return d.getFullYear() === Number(year) && (d.getMonth() + 1) === Number(month);
       });
     }
     if (searchTerm) {
@@ -416,7 +429,7 @@ export default function CostExpense() {
       );
     }
     return result;
-  }, [data, selectedMonth, searchTerm, mapping, getDateFromRow]);
+  }, [data, selectedYear, searchTerm, mapping, getDateFromRow]);
 
   const calculateSum = (key: string) => {
     return filteredData.reduce((sum, row) => {
@@ -428,6 +441,59 @@ export default function CostExpense() {
   const totalCost = calculateSum(mapping.totalCol);
   const totalLabor = calculateSum(mapping.laborCol);
   const totalUtilities = calculateSum('ค่าน้ำ (บาท)') + calculateSum('ค่าไฟฟ้า (บาท)');
+
+  const monthlyTrendData = useMemo(() => {
+    const groups = filteredData.reduce((acc, row) => {
+      const rawDate = getDateFromRow(row);
+      if (!rawDate || rawDate === '-') return acc;
+      
+      const d = getParsedDate(rawDate);
+      if (!d || isNaN(d.getTime())) return acc;
+      
+      const monthKey = d.toLocaleString('en-US', { month: 'short', year: '2-digit' });
+      if (!acc[monthKey]) {
+        acc[monthKey] = { label: monthKey, cost: 0, labor: 0, util: 0, sortKey: d.getTime() };
+      }
+      const cost = parseFloat((row[mapping.totalCol] || '0').toString().replace(/,/g, ''));
+      const labor = parseFloat((row[mapping.laborCol] || '0').toString().replace(/,/g, ''));
+      const water = parseFloat((row['ค่าน้ำ (บาท)'] || '0').toString().replace(/,/g, ''));
+      const elec = parseFloat((row['ค่าไฟฟ้า (บาท)'] || '0').toString().replace(/,/g, ''));
+      
+      if (!isNaN(cost)) acc[monthKey].cost += cost;
+      if (!isNaN(labor)) acc[monthKey].labor += labor;
+      if (!isNaN(water)) acc[monthKey].util += water;
+      if (!isNaN(elec)) acc[monthKey].util += elec;
+      
+      return acc;
+    }, {} as Record<string, { label: string, cost: number, labor: number, util: number, sortKey: number }>);
+    
+    return Object.values(groups).sort((a: any, b: any) => a.sortKey - b.sortKey);
+  }, [filteredData, mapping, getDateFromRow]);
+
+  const trendAlerts = useMemo(() => {
+     if (monthlyTrendData.length < 2) return { cost: null, labor: null, util: null };
+     const latest = monthlyTrendData[monthlyTrendData.length - 1];
+     const prev = monthlyTrendData[monthlyTrendData.length - 2];
+
+     const calcVariance = (currVal: number, prevVal: number, invertGoodBad: boolean = false) => {
+         if (!prevVal || prevVal === 0) return null;
+         const variance = ((currVal - prevVal) / prevVal) * 100;
+         if (Math.abs(variance) >= 10) {
+             return {
+                 variance,
+                 invertGoodBad,
+                 label: `${variance > 0 ? '+' : ''}${variance.toFixed(1)}% vs ${prev.label}`
+             };
+         }
+         return null;
+     };
+
+     return {
+         cost: calcVariance(latest.cost, prev.cost, true), // cost increases are "bad"
+         labor: calcVariance(latest.labor, prev.labor, true),
+         util: calcVariance(latest.util, prev.util, true)
+     };
+  }, [monthlyTrendData]);
 
   const formatMB = (val: number) => {
     return '฿ ' + (val / 1000000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' MB';
@@ -491,20 +557,10 @@ export default function CostExpense() {
                 className="text-[11px] font-black text-[#212c46] outline-none bg-transparent select-none cursor-pointer"
               >
                 <option value="ALL">{t('ALL YEARS', 'ทุกปี')}</option>
-                {[...Array(10)].map((_, i) => {
-                  const yr = new Date().getFullYear() - 3 + i;
-                  return <option key={yr} value={yr}>{yr}</option>;
-                })}
+                {availableYears.map(yr => (
+                  <option key={yr} value={yr}>{yr}</option>
+                ))}
               </select>
-            </div>
-            <div className="flex items-center bg-white border border-[#eaeaec] rounded-xl px-3 py-1 shadow-sm h-[38px]">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mr-2">{t('MONTH:', 'เดือน:')}</span>
-              <input 
-                type="month" 
-                value={selectedMonth}
-                onChange={(e) => { setSelectedMonth(e.target.value); setCurrentPage(1); }}
-                className="text-[11px] font-black text-[#212c46] outline-none bg-transparent select-none cursor-pointer"
-              />
             </div>
           </div>
       </div>
@@ -544,9 +600,9 @@ export default function CostExpense() {
         
         {/* KPI STATS */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-3 shrink-0">
-            <KpiCard label={t('OVERALL COST', 'ต้นทุนรวมทั้งหมด')} value={formatMB(totalCost)} icon={Briefcase} colorAccent={THEME.danger} colorValue={THEME.danger} desc={t('TOTAL THB', 'ต้นทุนรวมสุทธิ (บาท)')} />
-            <KpiCard label={t('LABOR WAGES', 'ค่าแรงและค่าจ้างพนักงาน')} value={formatMB(totalLabor)} icon={Activity} colorAccent={THEME.primaryLight} colorValue={THEME.primaryLight} desc={t('WAGES THB', 'ค่าแรง/ค่าจ้างสะสม (บาท)')} />
-            <KpiCard label={t('WATER & ELECTRICITY', 'ค่าน้ำและค่าไฟฟ้า')} value={formatMB(totalUtilities)} icon={Zap} colorAccent={THEME.gold} colorValue={THEME.gold} desc={t('UTILITIES THB', 'สาธารณูปโภคสะสม (บาท)')} />
+            <KpiCard label={t('OVERALL COST', 'ต้นทุนรวมทั้งหมด')} value={formatMB(totalCost)} icon={Briefcase} colorAccent={THEME.danger} colorValue={THEME.danger} desc={t('TOTAL THB', 'ต้นทุนรวมสุทธิ (บาท)')} trendInfo={trendAlerts.cost} />
+            <KpiCard label={t('LABOR WAGES', 'ค่าแรงและค่าจ้างพนักงาน')} value={formatMB(totalLabor)} icon={Activity} colorAccent={THEME.primaryLight} colorValue={THEME.primaryLight} desc={t('WAGES THB', 'ค่าแรง/ค่าจ้างสะสม (บาท)')} trendInfo={trendAlerts.labor} />
+            <KpiCard label={t('WATER & ELECTRICITY', 'ค่าน้ำและค่าไฟฟ้า')} value={formatMB(totalUtilities)} icon={Zap} colorAccent={THEME.gold} colorValue={THEME.gold} desc={t('UTILITIES THB', 'สาธารณูปโภคสะสม (บาท)')} trendInfo={trendAlerts.util} />
             <KpiCard label={t('SYNCED MONTHS', 'จำนวนบันทึกซิงค์')} value={filteredData.length} icon={Database} colorAccent={THEME.success} colorValue={THEME.success} desc={t('ACTIVE RECORDS', 'รายการบันทึก')} />
         </div>
 

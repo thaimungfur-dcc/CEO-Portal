@@ -184,8 +184,12 @@ export const api = {
       
       const contentType = response.headers.get('content-type') || '';
       if (response.ok && contentType.includes('application/json')) {
-        result = await response.json();
-        success = true;
+        try {
+          result = await response.json();
+          success = true;
+        } catch (e) {
+          throw new Error('Proxy returned an empty response');
+        }
       } else {
         const errorText = `Proxy returned non-successful status (${response.status}) or non-JSON content type`;
         console.warn(errorText);
@@ -211,9 +215,13 @@ export const api = {
         });
         
         const text = await response.text();
-        result = JSON.parse(text);
-        success = true;
-        console.log('[API Fallback] Direct fetch to Google Apps Script succeeded!');
+        try {
+          result = JSON.parse(text);
+          success = true;
+          console.log('[API Fallback] Direct fetch to Google Apps Script succeeded!');
+        } catch (parseError) {
+          throw new Error('Google Apps Script returned an empty or invalid response. Please check your App Script deployment URL and ensuring it is set to "Anyone" access.');
+        }
       } catch (directError: any) {
         console.error('[API Fallback] Direct GAS fetch also failed:', directError);
         lastError = directError;

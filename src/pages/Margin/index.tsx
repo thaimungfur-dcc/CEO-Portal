@@ -22,6 +22,9 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
+} from 'recharts';
 
 const THEME = {
   primary: '#212c46',
@@ -286,10 +289,14 @@ function MarginUserGuidePanel({ isOpen, onClose, t }: any) {
 export default function Margin() {
   const { t } = useLanguage();
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const [showYoY, setShowYoY] = useState(false);
   
   const MONTH_LABELS = useMemo(() => 
     MONTH_LABELS_MAPPING.map(m => `${m}-${selectedYear}`), 
   [selectedYear]);
+
+  const previousYear = useMemo(() => (parseInt(selectedYear) - 1).toString(), [selectedYear]);
+  const PREV_MONTH_LABELS = useMemo(() => MONTH_LABELS_MAPPING.map(m => `${m}-${previousYear}`), [previousYear]);
   
   // State for operational category records
   const [categories, setCategories] = useState<CategoryData[]>(() => {
@@ -641,22 +648,11 @@ export default function Margin() {
     }> = {};
 
     MONTH_LABELS.forEach(m => {
-      // 1. Revenue is sum of category sales
       const rev = categories.reduce((sum, cat) => sum + (cat.months[m]?.sales || 0), 0);
-      
-      // 2. Product Variable Cost is sum of category varCost (Material Cost / Mat. Cost)
       const prodVarCost = categories.reduce((sum, cat) => sum + (cat.months[m]?.varCost || 0), 0);
-      
-      // 3. Fix Cost Row (LB & OH)
       const fix = fixedCosts[m] || 0;
-
-      // 4. Material Cost (Mat. Cost / Variable Cost)
       const totalVarCost = prodVarCost;
-
-      // 5. Margin = Revenue - Mat. Cost - LB & OH
       const marginVal = rev - totalVarCost - fix;
-
-      // 6. %Margin = (Margin / Revenue) * 100
       const pctMarginVal = rev > 0 ? (marginVal / rev) * 100 : 0;
 
       totals[m] = {
@@ -671,6 +667,55 @@ export default function Margin() {
 
     return totals;
   }, [categories, fixedCosts, MONTH_LABELS]);
+
+  const calculatedPrevMonthlyTotals = useMemo(() => {
+    const totals: Record<string, {
+      revenue: number;
+      productVarCost: number;
+      totalVarCost: number;
+      fixCost: number;
+      margin: number;
+      pctMargin: number;
+    }> = {};
+
+    PREV_MONTH_LABELS.forEach(m => {
+      const rev = categories.reduce((sum, cat) => sum + (cat.months[m]?.sales || 0), 0);
+      const prodVarCost = categories.reduce((sum, cat) => sum + (cat.months[m]?.varCost || 0), 0);
+      const fix = fixedCosts[m] || 0;
+      const totalVarCost = prodVarCost;
+      const marginVal = rev - totalVarCost - fix;
+      const pctMarginVal = rev > 0 ? (marginVal / rev) * 100 : 0;
+
+      totals[m] = {
+        revenue: rev,
+        productVarCost: prodVarCost,
+        totalVarCost,
+        fixCost: fix,
+        margin: marginVal,
+        pctMargin: pctMarginVal
+      };
+    });
+
+    return totals;
+  }, [categories, fixedCosts, PREV_MONTH_LABELS]);
+
+  const chartData = useMemo(() => {
+    return MONTH_LABELS_MAPPING.map(mLabel => {
+      const currentKey = `${mLabel}-${selectedYear}`;
+      const prevKey = `${mLabel}-${previousYear}`;
+
+      const curr = calculatedMonthlyTotals[currentKey] || { totalVarCost: 0, fixCost: 0 };
+      const prev = calculatedPrevMonthlyTotals[prevKey] || { totalVarCost: 0, fixCost: 0 };
+
+      return {
+        month: mLabel.toUpperCase() + ' ' + selectedYear,
+        varCost: parseFloat((curr.totalVarCost / 1000000).toFixed(4)),
+        fixCost: parseFloat((curr.fixCost / 1000000).toFixed(4)),
+        prevVarCost: parseFloat((prev.totalVarCost / 1000000).toFixed(4)),
+        prevFixCost: parseFloat((prev.fixCost / 1000000).toFixed(4)),
+      };
+    });
+  }, [calculatedMonthlyTotals, calculatedPrevMonthlyTotals, selectedYear, previousYear]);
 
   // Overall KPIs for quick visualization (Sum of active months)
   const statsKPI = useMemo(() => {
@@ -741,6 +786,19 @@ export default function Margin() {
 
         {/* Action Toolbar */}
         <div id="margin-action-toolbar" className="flex items-center gap-2.5 bg-white/50 p-1.5 rounded-xl border border-white/60 shadow-inner">
+          <div className="flex items-center gap-2 bg-white border border-[#eaeaec] rounded-lg px-3 h-9 shadow-sm">
+            <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">
+              {t('YOY COMPARISON', 'เปรียบเทียบ YOY')}
+            </span>
+            <button 
+              onClick={() => setShowYoY(!showYoY)}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${showYoY ? 'bg-[#b7a159]' : 'bg-slate-200'}`}
+              id="yoy-toggle"
+            >
+              <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${showYoY ? 'translate-x-4' : 'translate-x-0'}`} />
+            </button>
+          </div>
+
           <div className="flex items-center bg-white border border-[#eaeaec] rounded-lg px-2 h-9 shadow-sm">
              <Calendar size={14} className="text-[#3f809e] mr-2" />
              <select 
@@ -865,6 +923,87 @@ export default function Margin() {
               {statsKPI.pctMargin.toFixed(2)} %
             </h4>
             <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">{t('OF SALES', 'ของยอดขาย')}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* RECHARTS CHRONOLOGY GRAPH */}
+      <div className="px-4 sm:px-8 w-full mb-6">
+        <div className="bg-white px-6 py-6 rounded-2xl border border-[#eaeaec] shadow-sm flex flex-col relative">
+          <div className="mb-6">
+            <p className="text-[10px] font-black text-[#7a8b95] tracking-[0.2em] uppercase leading-none mb-1">{t('MONTHLY COST COMPARATIVE CHRONOLOGY', 'แผนภูมิวิเคราะห์ค่าใช้จ่ายสุทธิ')}</p>
+            <h3 className="text-[16px] font-mono font-black text-[#212c46]">
+              {t('Mat. Cost vs. LB & OH Trends (Million Baht)', 'เปรียบเทียบแนวโน้มต้นทุนและรายจ่ายส่วนกลาง (ล้านบาท)')}
+            </h3>
+          </div>
+
+          <div className="w-full h-[320px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                <XAxis 
+                  dataKey="month" 
+                  tick={{ fontSize: 10, fill: '#64748B', fontWeight: 700 }}
+                  axisLine={{ stroke: '#E2E8F0' }}
+                  tickLine={false}
+                  dy={10}
+                />
+                <YAxis 
+                  tick={{ fontSize: 10, fill: '#64748B', fontWeight: 700 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(val) => `${val.toFixed(1)}M`}
+                />
+                <Tooltip 
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)', fontWeight: 'bold', fontSize: '12px' }}
+                />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} verticalAlign="top" align="right" />
+                
+                {/* Current Year Lines */}
+                <Line 
+                  type="monotone" 
+                  dataKey="varCost" 
+                  name={showYoY ? t('Mat. Cost (Current)', 'ต้นทุนผันแปร (ปีนี้)') : t('MAT. COST', 'MAT. COST')}
+                  stroke="#932c2e" 
+                  strokeWidth={3} 
+                  dot={{ r: 4, strokeWidth: 2, fill: 'white' }} 
+                  activeDot={{ r: 6, stroke: '#932c2e', strokeWidth: 2 }}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="fixCost" 
+                  name={showYoY ? t('LB & OH (Current)', 'ค่าแรงและโสหุ้ย (ปีนี้)') : t('LB & OH', 'LB & OH')}
+                  stroke="#3f809e" 
+                  strokeWidth={3} 
+                  dot={{ r: 4, strokeWidth: 2, fill: 'white' }} 
+                  activeDot={{ r: 6, stroke: '#3f809e', strokeWidth: 2 }}
+                />
+
+                {/* Previous Year YoY Lines */}
+                {showYoY && (
+                  <Line 
+                    type="monotone" 
+                    dataKey="prevVarCost" 
+                    name={t('Mat. Cost (Prev Year)', 'ต้นทุนผันแปร (ปีที่แล้ว)')}
+                    stroke="#f56565" 
+                    strokeWidth={2} 
+                    strokeDasharray="5 5"
+                    dot={{ r: 3, fill: 'white' }} 
+                  />
+                )}
+                {showYoY && (
+                  <Line 
+                    type="monotone" 
+                    dataKey="prevFixCost" 
+                    name={t('LB & OH (Prev Year)', 'ค่าแรงและโสหุ้ย (ปีที่แล้ว)')}
+                    stroke="#4d87a8" 
+                    strokeWidth={2} 
+                    strokeDasharray="5 5"
+                    dot={{ r: 3, fill: 'white' }} 
+                  />
+                )}
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { CsvUpload } from '../../components/shared/CsvUpload';
 import { api } from '../../services/api';
 import { DraggableModal } from '../../components/shared/DraggableModal';
-import { TrendingUp, Upload, Settings, Plus, List, Search, ChevronLeft, ChevronRight, BarChart2, DollarSign, Package, HelpCircle, X, LayoutGrid, Zap, Database, Briefcase, CheckCircle2, AlertCircle, Trash2 } from 'lucide-react';
+import { TrendingUp, TrendingDown, Upload, Settings, Plus, List, Search, ChevronLeft, ChevronRight, BarChart2, DollarSign, Package, HelpCircle, X, LayoutGrid, Zap, Database, Briefcase, CheckCircle2, AlertCircle, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../../context/LanguageContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
@@ -20,7 +20,12 @@ const THEME = {
   revenueBlue: '#0ea5e9'
 };
 
-const COMPARISON_MONTHS = ['Jan-25', 'Feb-25', 'Mar-25', 'Apr-25', 'May-25', 'Jun-25', 'Jul-25', 'Aug-25', 'Sep-25', 'Oct-25', 'Nov-25', 'Dec-25'];
+const COMPARISON_MONTHS = [
+  'Jan-25', 'Feb-25', 'Mar-25', 'Apr-25', 'May-25', 'Jun-25', 
+  'Jul-25', 'Aug-25', 'Sep-25', 'Oct-25', 'Nov-25', 'Dec-25',
+  'Jan-26', 'Feb-26', 'Mar-26', 'Apr-26', 'May-26', 'Jun-26',
+  'Jul-26', 'Aug-26', 'Sep-26', 'Oct-26', 'Nov-26', 'Dec-26'
+];
 
 interface ComparisonCell {
   qty: number | null;
@@ -456,7 +461,7 @@ function UserGuidePanel({ isOpen, onClose, t }: any) {
   );
 }
 
-const KpiCard = ({ icon: Icon, value, label, colorAccent, colorValue, desc }: any) => (
+const KpiCard = ({ icon: Icon, value, label, colorAccent, colorValue, desc, trendInfo }: any) => (
     <div className="bg-white/90 px-6 py-6 rounded-2xl border border-[#eaeaec] shadow-sm flex-1 min-w-[200px] relative overflow-hidden group hover:border-[#b7a159] transition-all min-h-[120px] flex flex-col justify-between animate-fadeIn">
         <div className="absolute -right-4 -bottom-6 opacity-[0.05] transform group-hover:scale-110 transition-transform duration-700 pointer-events-none">
             <Icon size={110} color={colorAccent} />
@@ -468,9 +473,17 @@ const KpiCard = ({ icon: Icon, value, label, colorAccent, colorValue, desc }: an
             </div>
         </div>
         <div className="relative z-10 mt-2 flex items-end justify-between">
-            <p className="text-[28px] font-black leading-none text-[#212c46]" style={{color: colorValue}}>
-                {value}
-            </p>
+            <div className="flex flex-col gap-1.5">
+                <p className="text-[28px] font-black leading-none text-[#212c46]" style={{color: colorValue}}>
+                    {value}
+                </p>
+                {trendInfo && (
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold inline-flex items-center gap-1 w-max ${trendInfo.variance > 0 ? (trendInfo.invertGoodBad ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700') : (trendInfo.invertGoodBad ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}`}>
+                        {trendInfo.variance > 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                        {trendInfo.label}
+                    </span>
+                )}
+            </div>
             <span className="text-[11px] font-bold text-[#4d87a8] uppercase tracking-widest flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span> {desc}
             </span>
@@ -485,12 +498,22 @@ export default function SaleRevenue() {
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
-  const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'ALL' | 'ITEM' | 'CATEGORY' | 'COMPARISON'>('ALL');
+  const [selectedCompType, setSelectedCompType] = useState('ALL');
   const [isLoading, setIsLoading] = useState(false);
   const [alertInfo, setAlertInfo] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+  const [mapping, setMapping] = useState(() => {
+    const saved = localStorage.getItem('saleRevenueMapping');
+    if (saved) return JSON.parse(saved);
+    return {
+      dateCol: 'mm/dd/yyyy',
+      productCol: 'ชื่อสินค้า',
+      revenueCol: 'มูลค่าขาย(บาท)'
+    };
+  });
 
   const [comparisonProducts, setComparisonProducts] = useState<ComparisonProduct[]>(() => {
     const saved = localStorage.getItem('saleRevenueComparisonProducts');
@@ -523,16 +546,29 @@ export default function SaleRevenue() {
       // Load comparison product overrides from cloud database
       try {
         const compRes = await api.post('read', 'SaleComparison', null, { limit: 500 });
-        if (compRes && compRes.status === 'success' && compRes.data && compRes.data.items && compRes.data.items.length > 0) {
-          const fetchedComp: ComparisonProduct[] = compRes.data.items.map((row: any) => ({
-            category: row.category,
-            name: row.name,
-            cost: row.cost != null ? Number(row.cost) : null,
-            price: Number(row.price),
-            months: typeof row.months === 'string' ? JSON.parse(row.months) : row.months
-          }));
-          setComparisonProducts(fetchedComp);
-          localStorage.setItem('saleRevenueComparisonProducts', JSON.stringify(fetchedComp));
+        if (compRes && compRes.status === 'success' && compRes.data && compRes.data.items) {
+          if (compRes.data.items.length > 0) {
+            const fetchedComp: ComparisonProduct[] = compRes.data.items.map((row: any) => ({
+              category: row.category,
+              name: row.name,
+              cost: row.cost != null ? Number(row.cost) : null,
+              price: Number(row.price),
+              months: typeof row.months === 'string' ? JSON.parse(row.months) : row.months
+            }));
+            setComparisonProducts(fetchedComp);
+            localStorage.setItem('saleRevenueComparisonProducts', JSON.stringify(fetchedComp));
+          } else {
+            // Seed initial records if empty so edit (update) will work
+            const seedPayload = INITIAL_COMPARISON_PRODUCTS.map(p => ({
+              id: String(p.name),
+              category: p.category,
+              name: p.name,
+              cost: p.cost,
+              price: p.price,
+              months: JSON.stringify(p.months),
+            }));
+            api.post('write', 'SaleComparison', seedPayload).catch(e => console.error(e));
+          }
         }
       } catch (err) {
         console.error('Failed to load comparative benchmarks, using cache:', err);
@@ -544,8 +580,173 @@ export default function SaleRevenue() {
     loadData();
   }, []);
 
-  const filteredComparisonProducts = useMemo(() => {
-    let result = comparisonProducts;
+  const getParsedDate = (rawDate: any) => {
+    if (!rawDate) return null;
+    if (rawDate instanceof Date) {
+      if (isNaN(rawDate.getTime())) return null;
+      let yr = rawDate.getFullYear();
+      if (yr > 2400) {
+        rawDate.setFullYear(yr - 543);
+      }
+      return rawDate;
+    }
+
+    if (typeof rawDate === 'number' || !isNaN(Number(rawDate))) {
+        const serialDate = Number(rawDate);
+        const parsedDate = new Date((serialDate - (25567 + 1)) * 86400 * 1000);
+        let yr = parsedDate.getFullYear();
+        if (yr > 2400) {
+          parsedDate.setFullYear(yr - 543);
+        }
+        return parsedDate;
+    }
+
+    const strDate = String(rawDate).trim();
+    const parts = strDate.split(/[\/\-]/);
+    if (parts.length === 3) {
+       let year = 0;
+       let month = 0;
+       let day = 1;
+
+       const p0 = Number(parts[0]);
+       const p1 = Number(parts[1]);
+       const p2 = Number(parts[2]);
+
+       if (p0 > 1000) {
+         year = p0;
+         month = p1;
+         day = p2;
+       } else if (p2 > 1000) {
+         year = p2;
+         if (p0 > 12) {
+           day = p0;
+           month = p1;
+         } else if (p1 > 12) {
+           month = p0;
+           day = p1;
+         } else {
+           const isThaiOrStandardTH = mapping.dateCol.toLowerCase().includes('วัน') || mapping.dateCol.toLowerCase().includes('date') || !mapping.dateCol.toLowerCase().includes('mm/dd');
+           if (isThaiOrStandardTH) {
+             day = p0;
+             month = p1;
+           } else {
+             month = p0;
+             day = p1;
+           }
+         }
+       } else {
+         return new Date(strDate);
+       }
+
+       if (year > 2400) {
+         year -= 543;
+       }
+
+       if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+         return new Date(year, month - 1, day);
+       }
+    }
+
+    const d = new Date(strDate);
+    if (!isNaN(d.getTime())) {
+      let yr = d.getFullYear();
+      if (yr > 2400) {
+        d.setFullYear(yr - 543);
+      }
+      return d;
+    }
+    return null;
+  };
+
+  const { comparisonSalesMatrix, dynamicComparisonMonths, comparisonTypes, comparisonYears } = useMemo(() => {
+    const matrix: Record<string, { category: string, name: string, months: Record<string, { qty: number, val: number }> }> = {};
+    const monthsSet = new Set<string>();
+    
+    // Ensure we at least show some default months if data is empty or to provide a framework
+    // Let's use the explicit ones from the original array + dynamic ones
+    COMPARISON_MONTHS.forEach(m => monthsSet.add(m));
+
+    // Seed with existing benchmark products to keep structure and any manual projections
+    comparisonProducts.forEach(p => {
+       matrix[p.name] = {
+          category: p.category,
+          name: p.name,
+          months: {}
+       };
+       if (p.months) {
+         Object.keys(p.months).forEach(m => {
+           monthsSet.add(m);
+           matrix[p.name].months[m] = {
+             qty: p.months[m].qty || 0,
+             val: p.months[m].val || 0
+           };
+         });
+       }
+    });
+
+    const seenActuals = new Set<string>();
+
+    data.forEach(row => {
+      const pName = row[mapping.productCol] || row['ชื่อสินค้า'];
+      if (!pName) return;
+
+      const pCat = row['ประเภท'] || '';
+      
+      const d = getParsedDate(row[mapping.dateCol] || row['Date'] || row['วันที่']);
+      if (!d || isNaN(d.getTime())) return;
+
+      const mStr = d.toLocaleString('en-US', { month: 'short' });
+      const yStr = String(d.getFullYear()).slice(-2);
+      const mKey = `${mStr}-${yStr}`;
+      
+      monthsSet.add(mKey);
+
+      if (!matrix[pName]) {
+        matrix[pName] = { category: pCat, name: pName, months: {} };
+      }
+
+      const actualKey = `${pName}-${mKey}`;
+      
+      // If this is the first time we see actual data for this product+month, 
+      // overwrite (clear) the mocked/manual data so we don't double count.
+      if (!seenActuals.has(actualKey)) {
+        seenActuals.add(actualKey);
+        matrix[pName].months[mKey] = { qty: 0, val: 0 };
+      }
+
+      if (!matrix[pName].months[mKey]) {
+        matrix[pName].months[mKey] = { qty: 0, val: 0 };
+      }
+
+      const qty = parseFloat((row['ยอดขาย (ชิ้น)'] || '0').toString().replace(/,/g, ''));
+      const rev = parseFloat((row[mapping.revenueCol] || '0').toString().replace(/,/g, ''));
+
+      matrix[pName].months[mKey].qty += (isNaN(qty) ? 0 : qty);
+      matrix[pName].months[mKey].val += (isNaN(rev) ? 0 : rev);
+    });
+
+    // Extract unique categories (types) and years for the select dropdowns
+    const comparisonTypes = Array.from(new Set(Object.values(matrix).map(p => p.category))).filter(Boolean).sort();
+
+    // Custom sort months chronologically
+    let sortedMonths = Array.from(monthsSet).sort((a, b) => {
+       const [mA, yA] = a.split('-');
+       const [mB, yB] = b.split('-');
+       const dateA = new Date(`20${yA}-${mA}-01`);
+       const dateB = new Date(`20${yB}-${mB}-01`);
+       return dateA.getTime() - dateB.getTime();
+    });
+
+    if (selectedYear !== 'ALL') {
+       sortedMonths = sortedMonths.filter(m => ('20' + m.split('-')[1]) === selectedYear);
+    }
+
+    let result = Object.values(matrix);
+
+    if (selectedCompType !== 'ALL') {
+       result = result.filter(p => p.category === selectedCompType);
+    }
+
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(p => 
@@ -553,14 +754,18 @@ export default function SaleRevenue() {
         p.category.toLowerCase().includes(term)
       );
     }
-    return result;
-  }, [comparisonProducts, searchTerm]);
+    
+    // Sort by Category then Name
+    result.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+
+    return { comparisonSalesMatrix: result, dynamicComparisonMonths: sortedMonths, comparisonTypes };
+  }, [data, mapping, comparisonProducts, searchTerm, selectedYear, selectedCompType]);
 
   const handleCellEdit = async (index: number, month: string, type: 'qty' | 'val', newValue: string) => {
     const updated = [...comparisonProducts];
     const valFloat = newValue.trim() === '' ? null : parseFloat(newValue.replace(/,/g, ''));
     
-    const productItem = filteredComparisonProducts[index];
+    const productItem = comparisonSalesMatrix[index];
     const actualIndex = comparisonProducts.findIndex(p => p.name === productItem.name);
     
     if (actualIndex !== -1) {
@@ -581,23 +786,13 @@ export default function SaleRevenue() {
           price: updated[actualIndex].price,
           months: JSON.stringify(updated[actualIndex].months)
         };
-        await api.post('write', 'SaleComparison', [payload]);
+        await api.post('update', 'SaleComparison', [payload]);
       } catch (err) {
-        console.error('Failed to write SaleComparison to cloud database:', err);
+        console.error('Failed to update SaleComparison to cloud database:', err);
       }
     }
   };
   
-  const [mapping, setMapping] = useState(() => {
-    const saved = localStorage.getItem('saleRevenueMapping');
-    if (saved) return JSON.parse(saved);
-    return {
-      dateCol: 'mm/dd/yyyy',
-      productCol: 'ชื่อสินค้า',
-      revenueCol: 'มูลค่าขาย(บาท)'
-    };
-  });
-
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
 
   const handleClearData = async () => {
@@ -696,83 +891,20 @@ export default function SaleRevenue() {
     }
   };
 
-  const getParsedDate = (rawDate: any) => {
-    if (!rawDate) return null;
-    if (rawDate instanceof Date) {
-      if (isNaN(rawDate.getTime())) return null;
-      let yr = rawDate.getFullYear();
-      if (yr > 2400) {
-        rawDate.setFullYear(yr - 543);
+
+  const availableYears = React.useMemo(() => {
+    const years = new Set<number>();
+    data.forEach(row => {
+      const d = getParsedDate(row[mapping.dateCol] || row['Date'] || row['วันที่']);
+      if (d && !isNaN(d.getTime())) {
+        years.add(d.getFullYear());
       }
-      return rawDate;
+    });
+    if (years.size === 0) {
+      years.add(new Date().getFullYear());
     }
-
-    if (typeof rawDate === 'number' || !isNaN(Number(rawDate))) {
-        const serialDate = Number(rawDate);
-        const parsedDate = new Date((serialDate - (25567 + 1)) * 86400 * 1000);
-        let yr = parsedDate.getFullYear();
-        if (yr > 2400) {
-          parsedDate.setFullYear(yr - 543);
-        }
-        return parsedDate;
-    }
-
-    const strDate = String(rawDate).trim();
-    const parts = strDate.split(/[\/\-]/);
-    if (parts.length === 3) {
-       let year = 0;
-       let month = 0;
-       let day = 1;
-
-       const p0 = Number(parts[0]);
-       const p1 = Number(parts[1]);
-       const p2 = Number(parts[2]);
-
-       if (p0 > 1000) {
-         year = p0;
-         month = p1;
-         day = p2;
-       } else if (p2 > 1000) {
-         year = p2;
-         if (p0 > 12) {
-           day = p0;
-           month = p1;
-         } else if (p1 > 12) {
-           month = p0;
-           day = p1;
-         } else {
-           const isThaiOrStandardTH = mapping.dateCol.toLowerCase().includes('วัน') || mapping.dateCol.toLowerCase().includes('date') || !mapping.dateCol.toLowerCase().includes('mm/dd');
-           if (isThaiOrStandardTH) {
-             day = p0;
-             month = p1;
-           } else {
-             month = p0;
-             day = p1;
-           }
-         }
-       } else {
-         return new Date(strDate);
-       }
-
-       if (year > 2400) {
-         year -= 543;
-       }
-
-       if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-         return new Date(year, month - 1, day);
-       }
-    }
-
-    const d = new Date(strDate);
-    if (!isNaN(d.getTime())) {
-      let yr = d.getFullYear();
-      if (yr > 2400) {
-        d.setFullYear(yr - 543);
-      }
-      return d;
-    }
-    return null;
-  };
+    return Array.from(years).sort((a, b) => b - a);
+  }, [data, mapping]);
 
   const filteredData = React.useMemo(() => {
     let result = data;
@@ -781,14 +913,6 @@ export default function SaleRevenue() {
         const d = getParsedDate(row[mapping.dateCol] || row['Date'] || row['วันที่']);
         if (!d || isNaN(d.getTime())) return false;
         return d.getFullYear() === Number(selectedYear);
-      });
-    }
-    if (selectedMonth) {
-      const [year, month] = selectedMonth.split('-');
-      result = result.filter(row => {
-        const d = getParsedDate(row[mapping.dateCol] || row['Date'] || row['วันที่']);
-        if (!d || isNaN(d.getTime())) return false;
-        return d.getFullYear() === Number(year) && (d.getMonth() + 1) === Number(month);
       });
     }
     
@@ -801,7 +925,7 @@ export default function SaleRevenue() {
       );
     }
     return result;
-  }, [data, selectedMonth, searchTerm, mapping]);
+  }, [data, selectedYear, searchTerm, mapping]);
 
   const groupedData = React.useMemo(() => {
     if (activeTab === 'ALL') return filteredData;
@@ -860,17 +984,51 @@ export default function SaleRevenue() {
       
       const monthKey = d.toLocaleString('en-US', { month: 'short', year: '2-digit' }); // e.g. "Jan 25"
       if (!acc[monthKey]) {
-        acc[monthKey] = { label: monthKey, revenue: 0, sortKey: d.getTime() };
+        acc[monthKey] = { label: monthKey, revenue: 0, cost: 0, qty: 0, sortKey: d.getTime() };
       }
+      
       const revenue = parseFloat((row[mapping.revenueCol] || '0').toString().replace(/,/g, ''));
-      if (!isNaN(revenue)) {
-        acc[monthKey].revenue += revenue;
+      const costRaw = parseFloat((row['ราคาทุน'] || '0').toString().replace(/,/g, ''));
+      const qty = parseFloat((row['ยอดขาย (ชิ้น)'] || '0').toString().replace(/,/g, ''));
+      
+      if (!isNaN(revenue)) acc[monthKey].revenue += revenue;
+      if (!isNaN(qty)) {
+          acc[monthKey].qty += qty;
+          if (!isNaN(costRaw)) {
+              acc[monthKey].cost += (costRaw * qty);
+          }
       }
+      
       return acc;
-    }, {} as Record<string, { label: string, revenue: number, sortKey: number }>);
+    }, {} as Record<string, { label: string, revenue: number, cost: number, qty: number, sortKey: number }>);
     
     return Object.values(groups).sort((a: any, b: any) => a.sortKey - b.sortKey);
   }, [filteredData, mapping]);
+
+  const trendAlerts = useMemo(() => {
+     if (monthlyTrendData.length < 2) return { revenue: null, cost: null, qty: null };
+     const latest = monthlyTrendData[monthlyTrendData.length - 1];
+     const prev = monthlyTrendData[monthlyTrendData.length - 2];
+
+     const calcVariance = (currVal: number, prevVal: number, invertGoodBad: boolean = false) => {
+         if (!prevVal || prevVal === 0) return null;
+         const variance = ((currVal - prevVal) / prevVal) * 100;
+         if (Math.abs(variance) >= 10) {
+             return {
+                 variance,
+                 invertGoodBad,
+                 label: `${variance > 0 ? '+' : ''}${variance.toFixed(1)}% vs ${prev.label}`
+             };
+         }
+         return null;
+     };
+
+     return {
+         revenue: calcVariance(latest.revenue, prev.revenue, false),
+         cost: calcVariance(latest.cost, prev.cost, true), // Higher cost is "bad"
+         qty: calcVariance(latest.qty, prev.qty, false)
+     };
+  }, [monthlyTrendData]);
 
   const formatMB = (val: number) => {
     return '฿ ' + (val / 1000000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' MB';
@@ -880,9 +1038,9 @@ export default function SaleRevenue() {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'THB' }).format(val).replace('THB', '฿');
   };
 
-  const comparisonPaginated = filteredComparisonProducts.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
+  const comparisonPaginated = comparisonSalesMatrix.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
   const paginatedData = activeTab === 'COMPARISON' ? [] : groupedData.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
-  const displayLength = activeTab === 'COMPARISON' ? filteredComparisonProducts.length : groupedData.length;
+  const displayLength = activeTab === 'COMPARISON' ? comparisonSalesMatrix.length : groupedData.length;
   const totalPages = Math.max(1, Math.ceil(displayLength / rowsPerPage));
 
   return (
@@ -926,22 +1084,10 @@ export default function SaleRevenue() {
                   className="text-[11px] font-black text-[#212c46] outline-none bg-transparent select-none cursor-pointer"
                 >
                   <option value="ALL">{t('ALL YEARS', 'ทุกปี')}</option>
-                  {[...Array(10)].map((_, i) => {
-                    const yr = new Date().getFullYear() - 3 + i;
-                    return <option key={yr} value={yr}>{yr}</option>;
-                  })}
+                  {availableYears.map(yr => (
+                    <option key={yr} value={yr}>{yr}</option>
+                  ))}
                 </select>
-              </div>
-
-              {/* Date Filtering (Month Selection) */}
-              <div className="flex items-center bg-white border border-[#eaeaec] rounded-lg px-3 py-1 shadow-sm h-[38px]">
-                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mr-2">{t('MONTH:', 'เดือน:')}</span>
-                <input 
-                  type="month" 
-                  value={selectedMonth}
-                  onChange={(e) => { setSelectedMonth(e.target.value); setCurrentPage(1); }}
-                  className="text-[11px] font-black text-[#212c46] outline-none bg-transparent select-none cursor-pointer"
-                />
               </div>
 
                {/* Tabs (Revenue Categories & Grouping) */}
@@ -994,9 +1140,9 @@ export default function SaleRevenue() {
         
         {/* KPI STATS */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-3 shrink-0">
-            <KpiCard label={t('TOTAL REVENUE', 'รายได้รวมทั้งหมด')} value={formatMB(totalRevenue)} icon={DollarSign} colorAccent={THEME.revenueBlue} colorValue={THEME.revenueBlue} desc={t('OVERALL INCOME', 'รายได้สะสม')} />
-            <KpiCard label={t('COST OF GOODS SOLD', 'ต้นทุนรวมสินค้าขาย')} value={formatMB(totalCost)} icon={BarChart2} colorAccent={THEME.danger} colorValue={THEME.danger} desc={t('TOTAL COST', 'ต้นทุนสะสม')} />
-            <KpiCard label={t('TOTAL QUANTITY', 'จำนวนสินค้าขายรวม')} value={totalQty.toLocaleString()} icon={Package} colorAccent={THEME.gold} colorValue={THEME.gold} desc={t('ITEMS SOLD', 'จำนวนชิ้นที่ขาย')} />
+            <KpiCard label={t('TOTAL REVENUE', 'รายได้รวมทั้งหมด')} value={formatMB(totalRevenue)} icon={DollarSign} colorAccent={THEME.revenueBlue} colorValue={THEME.revenueBlue} desc={t('OVERALL INCOME', 'รายได้สะสม')} trendInfo={trendAlerts.revenue} />
+            <KpiCard label={t('COST OF GOODS SOLD', 'ต้นทุนรวมสินค้าขาย')} value={formatMB(totalCost)} icon={BarChart2} colorAccent={THEME.danger} colorValue={THEME.danger} desc={t('TOTAL COST', 'ต้นทุนสะสม')} trendInfo={trendAlerts.cost} />
+            <KpiCard label={t('TOTAL QUANTITY', 'จำนวนสินค้าขายรวม')} value={totalQty.toLocaleString()} icon={Package} colorAccent={THEME.gold} colorValue={THEME.gold} desc={t('ITEMS SOLD', 'จำนวนชิ้นที่ขาย')} trendInfo={trendAlerts.qty} />
             <KpiCard label={t('TOTAL RECORDS', 'จำนวนบันทึกซิงค์')} value={filteredData.length} icon={List} colorAccent={THEME.success} colorValue={THEME.success} desc={t('SYNCED RECORDS', 'รายการบันทึก')} />
         </div>
 
@@ -1052,6 +1198,20 @@ export default function SaleRevenue() {
                   className="pl-10 pr-5 py-2 h-full border border-[#eaeaec] rounded-xl text-[11px] font-bold text-[#212c46] w-[200px] focus:outline-none focus:border-[#4d87a8] transition-all bg-[#f8f9fa] focus:bg-white placeholder-[#7a8b95]" 
                 />
               </div>
+              {activeTab === 'COMPARISON' && (
+                <>
+                  <select 
+                    value={selectedCompType}
+                    onChange={e => { setSelectedCompType(e.target.value); setCurrentPage(1); }}
+                    className="h-[38px] px-3 border border-[#eaeaec] rounded-xl text-[11px] font-bold text-[#212c46] outline-none cursor-pointer bg-white"
+                  >
+                    <option value="ALL">{t('ALL TYPES', 'ทุกประเภท')}</option>
+                    {comparisonTypes.map(typ => (
+                      <option key={typ} value={typ}>{typ}</option>
+                    ))}
+                  </select>
+                </>
+              )}
               {activeTab === 'ALL' && (
                 <>
                   <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 bg-[#212c46] hover:bg-[#414757] text-white px-4 h-[38px] rounded-xl text-[11px] font-black uppercase tracking-widest shadow-md transition-all">
@@ -1106,14 +1266,14 @@ export default function SaleRevenue() {
                   <tr className="border-b border-[#b7a159]/40">
                     <th rowSpan={2} className="px-4 py-3 text-[12px] font-black tracking-wider uppercase text-center border-r border-[#b7a159]/20 align-middle whitespace-nowrap bg-[#212c46]">{t('TYPE', 'ประเภท')}</th>
                     <th rowSpan={2} className="px-4 py-3 text-[12px] font-black tracking-wider uppercase text-left border-r border-[#b7a159]/20 align-middle min-w-[200px] whitespace-nowrap bg-[#212c46]">{t('PRODUCT', 'ชื่อสินค้า')}</th>
-                    {COMPARISON_MONTHS.map(m => (
+                    {dynamicComparisonMonths.map(m => (
                       <th key={m} colSpan={2} className="px-4 py-1.5 text-[12px] font-black tracking-wider text-center border-r border-[#b7a159]/20 bg-[#2d3a5a] whitespace-nowrap">
                         {m}
                       </th>
                     ))}
                   </tr>
                   <tr className="border-b-2 border-[#b7a159] bg-[#1d273f]">
-                    {COMPARISON_MONTHS.map(m => (
+                    {dynamicComparisonMonths.map(m => (
                       <React.Fragment key={'sub-' + m}>
                         <th className="px-3 py-1 text-[12px] font-extrabold text-center border-r border-[#b7a159]/10 text-cyan-200/90 whitespace-nowrap uppercase tracking-tight">
                           {t('Qty (pcs)', 'ยอดขาย (ชิ้น)')}
@@ -1128,7 +1288,7 @@ export default function SaleRevenue() {
               )}
               <tbody className="divide-y divide-[#eaeaec] bg-white">
                 {activeTab === 'COMPARISON' ? (
-                  filteredComparisonProducts.length === 0 ? (
+                  comparisonSalesMatrix.length === 0 ? (
                     <tr>
                       <td colSpan={18} className="px-4 py-20 text-center text-[#7a8b95] font-black uppercase tracking-widest text-[12px]">
                         {t('No Matching Products Found', 'ไม่พบรายชื่อสินค้าตามการค้นหา')}
@@ -1147,7 +1307,7 @@ export default function SaleRevenue() {
                           >
                             <td className="px-4 py-2.5 text-[12px] font-black text-[#5e6a75] text-center bg-[#f1f3f5] border-r border-[#eaeaec] whitespace-nowrap">{prod.category}</td>
                             <td className="px-4 py-2.5 text-[12px] font-black text-[#212c46] border-r border-[#eaeaec] truncate max-w-[220px] whitespace-nowrap" title={prod.name}>{prod.name}</td>
-                            {COMPARISON_MONTHS.map(m => {
+                            {dynamicComparisonMonths.map(m => {
                               const cell = prod.months[m] || { qty: null, val: null };
                               const isEditingQty = editingCell && editingCell.productIndex === globalIdx && editingCell.month === m && editingCell.type === 'qty';
                               const isEditingVal = editingCell && editingCell.productIndex === globalIdx && editingCell.month === m && editingCell.type === 'val';
@@ -1294,7 +1454,7 @@ export default function SaleRevenue() {
                           {[10, 20, 50, 100].map(v => <option key={v} value={v}>{v}</option>)}
                       </select>
                   </div>
-                  <p className="bg-white px-4 py-2 rounded-xl border border-[#eaeaec] shadow-sm">{t('Total Records:', 'บันทึกรวมทั้งหมด:')} {activeTab === 'COMPARISON' ? filteredComparisonProducts.length : groupedData.length}</p>
+                  <p className="bg-white px-4 py-2 rounded-xl border border-[#eaeaec] shadow-sm">{t('Total Records:', 'บันทึกรวมทั้งหมด:')} {activeTab === 'COMPARISON' ? comparisonSalesMatrix.length : groupedData.length}</p>
               </div>
               <div className="flex items-center gap-3">
                   <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className={`w-8 h-8 border border-[#eaeaec] bg-white rounded-lg flex items-center justify-center transition-all ${currentPage === 1 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-[#212c46] hover:text-white shadow-md active:scale-90'}`}>
